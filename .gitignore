@@ -1,0 +1,48 @@
+# --- Secrets / environment ---
+.env
+*.env.local
+
+# --- Data (raw and processed are downloaded/generated, never committed) ---
+data/raw/*
+!data/raw/README.md
+data/processed/*
+!data/processed/README.md
+
+# --- Generated EDA / forecasting / anomaly-detection plots (regenerable) ---
+reports/eda/*
+!reports/eda/.gitkeep
+reports/forecasting/*
+!reports/forecasting/.gitkeep
+reports/anomalies/*
+!reports/anomalies/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+
+# --- ML artifacts (trained models are regenerable via `python -m
+# energy_platform.forecasting.train`, not source -- the RF artifact alone
+# is ~550MB) ---
+models/*
+!models/README.md
+
+# --- Node / frontend ---
+node_modules/
+frontend/dist/
+frontend/.vite/
+
+# --- OS / editor ---
+.DS_Store
+.vscode/
+.idea/
+
+# --- Postgres local volume (if bind-mounted instead of named volume) ---
+pgdata/

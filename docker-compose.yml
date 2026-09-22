@@ -1,0 +1,61 @@
+services:
+  db:
+    image: postgres:16-alpine
+    env_file: .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file: .env
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - ./backend:/app
+      - ./data:/app/data
+      - ./reports:/app/reports
+      - ./models:/app/models
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn energy_platform.main:app --host 0.0.0.0 --port 8000 --reload
+    healthcheck:
+      # python -m urllib, not curl: the python:3.11-slim base image doesn't
+      # ship curl, and adding it just for a healthcheck isn't worth the
+      # extra image layer.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    environment:
+      # Browser-side fetches, not container-to-container -- the browser runs
+      # on the host, so this must be the host-mapped backend port, never the
+      # Docker-network service name.
+      VITE_API_BASE_URL: http://localhost:${BACKEND_PORT:-8000}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    command: npm run dev
+
+volumes:
+  pgdata:

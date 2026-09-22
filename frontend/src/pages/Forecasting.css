@@ -1,0 +1,15 @@
+.control-label-inline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.methodology p {
+  margin-bottom: var(--space-3);
+}
+
+.methodology p:last-child {
+  margin-bottom: 0;
+}
