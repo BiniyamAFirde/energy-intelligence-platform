@@ -38,7 +38,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
-      start_period: 10s
+      # 180s, not the original 10s: the app's lifespan now loads
+      # models/random_forest_v1.joblib (~552MB) once at startup before
+      # Uvicorn serves any request at all, including /health itself. A
+      # cold-cache load of that artifact measured 103s on this machine;
+      # start_period must comfortably clear that so Compose doesn't mark
+      # the container unhealthy (and block the frontend's `depends_on:
+      # service_healthy`) while it's still legitimately starting up.
+      start_period: 180s
 
   frontend:
     build: ./frontend

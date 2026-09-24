@@ -7,6 +7,11 @@ const NAV_ITEMS = [
   { to: '/anomalies', label: 'Anomalies', end: false },
 ]
 
+// Separate demo feature -- scores arbitrary external company data, not the
+// loaded BDG2 portfolio the items above analyze -- so it's visually split
+// out rather than mixed into the main analytics nav.
+const DEMO_NAV_ITEMS = [{ to: '/external-forecast', label: 'External Forecast', end: false }]
+
 export function Layout() {
   return (
     <div className="layout">
@@ -17,6 +22,17 @@ export function Layout() {
         </div>
         <nav className="sidebar-nav" aria-label="Main navigation">
           {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) => 'sidebar-link' + (isActive ? ' sidebar-link-active' : '')}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+          <div className="sidebar-nav-divider" role="separator" />
+          {DEMO_NAV_ITEMS.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}

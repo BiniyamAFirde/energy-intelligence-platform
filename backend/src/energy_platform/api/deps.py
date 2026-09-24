@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Generator
 
-from fastapi import Query
+from fastapi import Query, Request
 from sqlalchemy.orm import Session
 
 from energy_platform.db.base import SessionLocal
@@ -41,3 +41,18 @@ def timeseries_limit(
     limit: int = Query(TIMESERIES_DEFAULT_LIMIT, ge=1, le=TIMESERIES_MAX_LIMIT),
 ) -> int:
     return limit
+
+
+def get_forecast_pipeline(request: Request):
+    """The trained Pipeline, loaded exactly once at application startup
+    (see main.py's lifespan) and reused for every request -- never
+    joblib.load'd per request. Raising here (rather than returning None)
+    if it's somehow unset keeps a broken startup loud instead of silently
+    producing confusing downstream errors."""
+    pipeline = getattr(request.app.state, "forecast_pipeline", None)
+    if pipeline is None:
+        raise RuntimeError(
+            "Forecast model pipeline is not loaded -- application startup must have failed "
+            "or not completed. Check server logs."
+        )
+    return pipeline

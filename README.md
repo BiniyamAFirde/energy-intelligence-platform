@@ -5,17 +5,19 @@ PostgreSQL, served through a FastAPI backend with day-ahead ML forecasting
 and multi-detector anomaly detection, and visualized in a React +
 TypeScript dashboard.
 
-> Status: **Phases 1-10 of 13 complete** -- data pipeline, REST API,
-> analytics/EDA, leakage-safe day-ahead forecasting, four-detector anomaly
-> detection, and the full dashboard are working end to end against real
-> data, with a production-hardening pass on top. The React frontend is the
-> newest layer (Phase 9); MQTT/IoT simulation and authentication remain
-> out of scope. See `docs/architecture.md` for the layered design,
-> `docs/eda.md` for what the data actually shows, `docs/forecasting.md`
-> for the forecasting formulation and measured results, `docs/anomalies.md`
-> for the four detectors and their evaluated performance, and
-> `docs/data_selection.md` / `docs/data_quality_notes.md` for how the
-> dataset was chosen and cleaned.
+> Status: **Feature-complete for portfolio release.** Data pipeline, REST
+> API, analytics/EDA, leakage-safe day-ahead forecasting, four-detector
+> anomaly detection, the full React dashboard, and an external-company
+> inference interface (CLI + API + dedicated demo page) are all working
+> end to end against real data, with a production-hardening pass on top.
+> MQTT/IoT simulation, authentication, and cloud deployment remain out of
+> scope -- see Limitations. See `docs/architecture.md` for the layered
+> design, `docs/eda.md` for what the data actually shows,
+> `docs/forecasting.md` for the forecasting formulation and measured
+> results, `docs/anomalies.md` for the four detectors and their evaluated
+> performance, `docs/external_inference.md` for the external-company
+> inference contract, and `docs/data_selection.md` /
+> `docs/data_quality_notes.md` for how the dataset was chosen and cleaned.
 
 ## Overview
 
@@ -179,6 +181,58 @@ docker compose run --rm backend python -m energy_platform.forecasting.plots
 curl "http://localhost:8000/api/v1/buildings/1/forecast?limit=5"
 ```
 
+## External-Company Inference
+
+A separate capability from the BDG2 dashboard above: score a **company
+that was never loaded into this database** against the already-trained
+Random Forest, using only a CSV of its own recent hourly readings plus a
+few building-metadata fields.
+
+**This performs inference only.** It loads the existing
+`models/random_forest_v1.joblib` artifact and calls `.predict()` -- it
+never calls `.fit()`, never retrains, and never modifies that artifact or
+any BDG2 training data. A company's uploaded data is used to produce its
+own forecast and is discarded afterward; it is not written to
+`energy_measurements`, `predictions`, or any other production table, and
+it never influences future predictions for BDG2 buildings or any other
+company. Requires at least 168 consecutive hourly observations (the
+model's lag/rolling-feature warm-up window). Full contract, validation
+rules, and limitations (including that accuracy on an arbitrary company's
+data is not guaranteed the way it is on the evaluated BDG2 subset) are in
+`docs/external_inference.md`.
+
+Three ways to use it, all backed by the exact same validation and
+inference code (`forecasting/external.py`) -- no duplicated logic between
+them:
+
+```bash
+# CLI: CSV in, CSV out
+python scripts/predict_external.py \
+    --energy examples/external_company/energy.csv \
+    --building examples/external_company/building.csv \
+    --output forecast.csv
+```
+
+```bash
+# API: JSON in, JSON out -- same validation, same model, same 24 predictions
+curl -X POST http://localhost:8000/api/v1/forecast \
+    -H "Content-Type: application/json" \
+    -d '{
+      "building": {
+        "building_code": "company_001", "area_sqm": 2500, "number_of_floors": 4,
+        "occupants": 180, "primary_use": "Office", "timezone": "US/Eastern"
+      },
+      "energy": [{"timestamp": "2024-06-01 00:00:00", "energy_kwh": 82.4}, ...]
+    }'
+```
+
+The trained Pipeline (~552MB) is loaded **once**, at application startup,
+and reused for every request -- never reloaded per prediction.
+
+- **Dashboard**: `http://localhost:5173/external-forecast` -- upload a CSV,
+  fill in building metadata, and get a rendered 24-hour forecast chart and
+  table from the real API above (not mocked).
+
 ## Anomaly Detection
 
 Four detectors, each with a genuinely different failure mode:
@@ -223,7 +277,7 @@ curl "http://localhost:8000/api/v1/alerts/summary"
 
 ## Dashboard
 
-React + TypeScript, five pages, all consuming the real API above (no mock
+React + TypeScript, six pages, all consuming the real API above (no mock
 data anywhere in the frontend):
 
 1. **Dashboard** -- portfolio KPIs, energy trend (hourly/daily/weekly/
@@ -240,6 +294,11 @@ data anywhere in the frontend):
 5. **Anomaly Detail** -- full alert metadata, the real backend-generated
    explanation text (not generic UI copy), and a surrounding-consumption
    chart with the flagged point highlighted
+6. **External Forecast** -- a clearly separate demo page (visually split
+   out in navigation from the BDG2 analytics pages above): upload a
+   company's own energy CSV and metadata, call the real
+   `POST /api/v1/forecast`, and render its 24-hour forecast -- see
+   External-Company Inference above
 
 ## Testing
 
@@ -251,7 +310,7 @@ docker compose run --rm backend pytest -v
 cd frontend && npm run build && npm test
 ```
 
-**Backend: 279 tests.** Unit tests for pure logic (download integrity,
+**Backend: 310 tests.** Unit tests for pure logic (download integrity,
 timestamp normalization incl. DST edge cases, site/building selection,
 parameter validation, statistics, feature engineering, seasonal-naive
 baselines, evaluation metrics, the four anomaly detectors, the synthetic
@@ -260,16 +319,22 @@ tests against a real, dedicated `energy_platform_test` PostgreSQL
 database -- verified to build correctly from a completely fresh database
 via `alembic upgrade head` alone, not assumed from a developer's existing
 schema (repository queries, service logic, full API request/response
-behavior, a dedicated forecasting-leakage suite, and an Isolation Forest
+behavior, a dedicated forecasting-leakage suite, an Isolation Forest
 fit-contamination test that actually corrupts validation-period data and
-confirms the TRAIN-fit model is unaffected, rather than asserting it by
-convention).
+confirms the TRAIN-fit model is unaffected rather than asserting it by
+convention, and a dedicated external-inference suite -- CSV adapter, API
+endpoint, and a DB-registered-unseen-building integration test -- that
+spies on `RandomForestRegressor.fit` to prove no test ever retrains, and
+hashes the model artifact before/after to prove it's never modified).
 
-**Frontend: 19 tests** (Vitest + React Testing Library) -- a focused set,
+**Frontend: 29 tests** (Vitest + React Testing Library) -- a focused set,
 not exhaustive coverage: the typed API client's query building and error
-handling, the pure formatting utilities, and loading/error/empty state
+handling, the pure formatting utilities, loading/error/empty state
 rendering (including that an `ApiError`'s backend-provided detail message
-is shown in preference to a generic one).
+is shown in preference to a generic one), and the External Forecast page
+(CSV upload/parsing, the loading/result/error states, a rendered 24-point
+forecast, and that an API warning is surfaced rather than hidden) with the
+real API call mocked, never hitting a live backend from a unit test.
 
 ## Running locally
 
@@ -283,6 +348,14 @@ the backend is actually serving requests (not just "container started").
 Backend and frontend both bind-mount their source for live reload during
 development.
 
+The backend's first startup (or any restart) loads
+`models/random_forest_v1.joblib` (~552MB) into memory once, before serving
+any request -- this can take up to ~2 minutes on a cold filesystem cache,
+which is why the backend healthcheck's `start_period` is set generously;
+`docker compose ps` will correctly show it as `starting`/`unhealthy`
+rather than `healthy` until that load finishes. Once healthy, no
+subsequent request reloads it (see External-Company Inference above).
+
 ## Project structure
 
 ```
@@ -294,7 +367,8 @@ backend/src/energy_platform/
   schemas/        Pydantic API contracts
   api/routers/    HTTP layer only
   analytics/      CLI EDA report + plots
-  forecasting/    features, dataset, baselines, models, evaluation, train, predict, plots
+  forecasting/    features, dataset, baselines, models, evaluation, train, predict,
+                  plots, external (CSV/JSON-adapter for external-company inference)
   anomalies/      injection, 4 detectors, evaluation, evaluate, detect, plots
 backend/tests/{unit,integration}/
 backend/alembic/  migrations
@@ -302,8 +376,11 @@ frontend/src/
   api/            typed API client, one file per backend domain
   components/     shared UI (KpiCard, charts, DataTable, badges, state views)
   hooks/          useApi, useAnomalyMonthlyTrend
-  pages/          Dashboard, BuildingDetail, Forecasting, AnomalyMonitoring, AnomalyDetail
-scripts/          download_data.py, run_ingestion.py
+  lib/            formatting + a minimal CSV parser (external-forecast upload)
+  pages/          Dashboard, BuildingDetail, Forecasting, AnomalyMonitoring,
+                  AnomalyDetail, ExternalForecast
+scripts/          download_data.py, run_ingestion.py, predict_external.py
+examples/external_company/  sample CSVs for the external-inference CLI/API/dashboard
 data/{raw,processed,samples}/
 models/           trained model artifacts (gitignored, regenerable via train.py / anomalies.evaluate)
 reports/{eda,forecasting,anomalies}/  generated plots (gitignored, regenerable)
@@ -367,8 +444,24 @@ Kept honest rather than smoothed over:
   benchmark -- a real property of a multivariate detector evaluated
   against largely univariate injected anomalies, not a bug.
 - No authentication -- this is a portfolio/demo application with a
-  read-only API, not a multi-tenant production service.
+  read-only API (plus one inference endpoint, `/api/v1/forecast`, open to
+  anyone who can reach the server), not a multi-tenant production service.
 - The unfiltered `/buildings/compare` endpoint (~2.3s) remains the one
   measurably expensive query; a materialized rollup table is the known
   fix if this ever needs to be faster, deliberately not built until it's
   actually needed.
+- **External-company inference is a demo of the mechanism, not a
+  generalization guarantee.** The model was trained and evaluated only on
+  the loaded 60-building BDG2 subset; scoring an arbitrary company's data
+  works end to end (CLI, API, and dashboard all call the same real
+  artifact), but that company's actual forecast accuracy is unverified --
+  distribution shift, an out-of-vocabulary `primary_use`, a very different
+  building scale, or a different climate are all real risks. See
+  `docs/external_inference.md` and `docs/PROJECT_REPORT.md` for the full
+  discussion.
+- **Runs locally via Docker Compose only.** There is no cloud deployment
+  and no GitHub Pages hosting of any kind here -- GitHub Pages can only
+  serve static files, and this application depends on a live FastAPI
+  process and a PostgreSQL database, neither of which GitHub Pages can
+  run. The only way to run this project is `docker compose up` (see
+  Quickstart) against this repository, locally or on your own server.

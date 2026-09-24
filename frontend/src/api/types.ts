@@ -202,3 +202,39 @@ export interface ForecastPoint {
   actual_kwh: number | null
   residual: number | null
 }
+
+// --- external forecast (mirrors backend/src/energy_platform/schemas/external_forecast.py) ---
+
+export interface ExternalBuildingIn {
+  building_code: string
+  area_sqm: number
+  number_of_floors: number
+  occupants: number
+  primary_use: string
+  timezone: string
+}
+
+export interface ExternalEnergyObservationIn {
+  timestamp: string
+  energy_kwh: number
+}
+
+export interface ExternalForecastRequest {
+  building: ExternalBuildingIn
+  energy: ExternalEnergyObservationIn[]
+}
+
+export interface ForecastPrediction {
+  target_ts: string
+  horizon: number
+  predicted_kwh: number
+}
+
+export interface ExternalForecastResponse {
+  building_code: string
+  model_name: string
+  model_version: string
+  forecast_origin: string
+  predictions: ForecastPrediction[]
+  warnings: string[]
+}

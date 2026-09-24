@@ -65,6 +65,12 @@
   color: var(--color-accent-strong);
 }
 
+.sidebar-nav-divider {
+  height: 1px;
+  margin: var(--space-2) var(--space-1);
+  background: var(--color-border);
+}
+
 .sidebar-footer {
   margin-top: auto;
   padding: var(--space-4);
@@ -104,6 +110,12 @@
   }
   .sidebar-link {
     white-space: nowrap;
+  }
+  .sidebar-nav-divider {
+    width: 1px;
+    height: auto;
+    align-self: stretch;
+    margin: 0 var(--space-2);
   }
   .sidebar-footer {
     display: none;

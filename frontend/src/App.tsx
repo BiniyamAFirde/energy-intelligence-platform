@@ -12,6 +12,9 @@ const AnomalyMonitoring = lazy(() =>
   import('./pages/AnomalyMonitoring').then((m) => ({ default: m.AnomalyMonitoring })),
 )
 const AnomalyDetail = lazy(() => import('./pages/AnomalyDetail').then((m) => ({ default: m.AnomalyDetail })))
+const ExternalForecast = lazy(() =>
+  import('./pages/ExternalForecast').then((m) => ({ default: m.ExternalForecast })),
+)
 
 export function App() {
   return (
@@ -23,6 +26,7 @@ export function App() {
           <Route path="/forecasting" element={<Forecasting />} />
           <Route path="/anomalies" element={<AnomalyMonitoring />} />
           <Route path="/anomalies/:alertId" element={<AnomalyDetail />} />
+          <Route path="/external-forecast" element={<ExternalForecast />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

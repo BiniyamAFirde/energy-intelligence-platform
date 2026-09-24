@@ -58,3 +58,38 @@ export async function apiGet<T>(path: string, params?: QueryParams): Promise<T> 
     throw new ApiError(`Response from ${path} was not valid JSON`, response.status, null)
   }
 }
+
+export async function apiPost<T>(path: string, body: unknown): Promise<T> {
+  const url = `${API_BASE_URL}${path}`
+  let response: Response
+  try {
+    response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  } catch {
+    throw new ApiError(`Network error reaching ${url}`, null, null)
+  }
+
+  if (!response.ok) {
+    let detail: string | null = null
+    try {
+      const errorBody = (await response.json()) as { detail?: string }
+      detail = errorBody.detail ?? null
+    } catch {
+      // response body wasn't JSON (or was empty) -- detail stays null
+    }
+    throw new ApiError(
+      detail ?? `Request to ${path} failed with status ${response.status}`,
+      response.status,
+      detail,
+    )
+  }
+
+  try {
+    return (await response.json()) as T
+  } catch {
+    throw new ApiError(`Response from ${path} was not valid JSON`, response.status, null)
+  }
+}
