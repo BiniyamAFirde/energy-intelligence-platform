@@ -308,4 +308,49 @@ forecast-residual detector established); `residual = actual - predicted`;
 `generated_at` (the forecast's origin) is verified to always precede
 `target_ts` (the point predicted) by a dedicated regression test, so a
 historical, backtested prediction can never be mistaken for a live one
+(the origin is always strictly earlier).
+
+## Production deployment architecture
+
+Everything above describes the application; this section describes where
+it runs when not local. Full procedure: `docs/deployment_render.md`.
+Blueprint: `render.yaml`.
+
+```
+GitHub (main)
+  |  auto-deploy on push
+  +--------------------------+--------------------------+
+  v                          v                          v
+Render Static Site     Render Web Service          Render PostgreSQL
+(React/Vite build,     (Docker runtime, same        (managed, Frankfurt)
+ frontend/dist,         backend/Dockerfile as
+ SPA rewrite            local Docker Compose,
+ /* -> /index.html)      >=2GB RAM plan)
+                              |
+                              v
+                    GitHub Release asset
+                    (random_forest_v1.joblib,
+                     downloaded + SHA256-verified
+                     once at container start --
+                     never in Git history)
+```
+
+The backend container is the *same* `backend/Dockerfile` used by
+`docker compose up` locally -- not a second, deployment-specific image.
+The only additions are (a) an entrypoint step
+(`backend/docker-entrypoint.sh` + `docker_model_fetch.py`) that fetches
+the model artifact if it isn't already present on disk -- a no-op locally,
+since the host bind mount already provides it -- and (b) the Dockerfile's
+default `CMD` reading Render's `PORT` env var via a shell-form command,
+which `docker-compose.yml`'s own `command:` override (hardcoded to the
+container-internal port 8000) bypasses entirely for local development. No
+forecasting, anomaly-detection, or API behavior changed for deployment.
+
+`DATABASE_URL` and `CORS_ORIGINS` are environment-driven in both
+environments already (`energy_platform.config.Settings`) -- deployment
+only means setting their values to Render's Postgres connection string and
+the deployed frontend's URL instead of `localhost`, never a code change.
+Same for the frontend's API base URL (`VITE_API_BASE_URL`, already
+environment-driven since the external-inference dashboard page was added --
+see `frontend/src/api/client.ts`).
 computed at request time.

@@ -356,6 +356,43 @@ which is why the backend healthcheck's `start_period` is set generously;
 rather than `healthy` until that load finishes. Once healthy, no
 subsequent request reloads it (see External-Company Inference above).
 
+## Deployment
+
+This same application is designed to run as a real online deployment, not
+only locally:
+
+- **GitHub** is the source repository and the source Render's CI/CD
+  deploys from (auto-deploy on push to `main`).
+- The **React frontend** deploys as a **Render static site** -- built with
+  `npm run build`, served from `frontend/dist`, with a SPA rewrite
+  (`/*` -> `/index.html`) so client-side routes like `/external-forecast`
+  work on a direct load or refresh.
+- The **FastAPI backend** runs as a **Render Docker web service**, built
+  from the same `backend/Dockerfile` used locally (on a plan with at
+  least 2GB RAM -- the model alone is ~552MB in memory).
+- **PostgreSQL** runs as **managed Render Postgres**, not a container
+  Render manages itself.
+- The Random Forest model (`models/random_forest_v1.joblib`, gitignored,
+  ~552MB) is supplied **separately from normal Git history**: published
+  as a GitHub Release asset and downloaded + SHA256-verified once at
+  container start (`backend/docker_model_fetch.py`), never baked into a
+  Git commit.
+- **Docker is not required on your computer** to *use* the deployed app --
+  once deployed, it's just a normal website plus a normal HTTPS API.
+  Docker (via `docker compose up`, above) remains fully available and
+  supported for **local development** -- the two are not mutually
+  exclusive; the same `backend/Dockerfile` serves both paths.
+- **External-company inference remains inference-only in production
+  exactly as it is locally**: `POST /api/v1/forecast` loads the existing
+  trained artifact and calls `.predict()` -- it does not retrain the
+  model on any company's uploaded data, in either environment.
+
+Full step-by-step instructions (creating the Render resources, resolving
+the backend/frontend URL configuration, migrating the existing demo
+database, and verifying the live deployment) are in
+`docs/deployment_render.md`; the Render Blueprint itself is `render.yaml`
+at the repo root.
+
 ## Project structure
 
 ```
@@ -372,6 +409,7 @@ backend/src/energy_platform/
   anomalies/      injection, 4 detectors, evaluation, evaluate, detect, plots
 backend/tests/{unit,integration}/
 backend/alembic/  migrations
+backend/docker-entrypoint.sh, docker_model_fetch.py   Render-only model fetch (no-op locally)
 frontend/src/
   api/            typed API client, one file per backend domain
   components/     shared UI (KpiCard, charts, DataTable, badges, state views)
@@ -384,6 +422,7 @@ examples/external_company/  sample CSVs for the external-inference CLI/API/dashb
 data/{raw,processed,samples}/
 models/           trained model artifacts (gitignored, regenerable via train.py / anomalies.evaluate)
 reports/{eda,forecasting,anomalies}/  generated plots (gitignored, regenerable)
+render.yaml       Render Blueprint (backend + frontend + Postgres)
 docs/
 ```
 
@@ -459,9 +498,17 @@ Kept honest rather than smoothed over:
   building scale, or a different climate are all real risks. See
   `docs/external_inference.md` and `docs/PROJECT_REPORT.md` for the full
   discussion.
-- **Runs locally via Docker Compose only.** There is no cloud deployment
-  and no GitHub Pages hosting of any kind here -- GitHub Pages can only
-  serve static files, and this application depends on a live FastAPI
-  process and a PostgreSQL database, neither of which GitHub Pages can
-  run. The only way to run this project is `docker compose up` (see
-  Quickstart) against this repository, locally or on your own server.
+- **No GitHub Pages hosting of any kind.** GitHub Pages can only serve
+  static files, and this application depends on a live FastAPI process
+  and a PostgreSQL database, neither of which GitHub Pages can run. See
+  Deployment above and `docs/deployment_render.md` for the actual
+  supported path (Render) -- `docker compose up` (Quickstart) remains the
+  way to run this project locally either way.
+- **Render deployment configuration exists but a live public deployment
+  has not necessarily been performed yet** -- `render.yaml` and
+  `docs/deployment_render.md` are ready to use, but several steps
+  (publishing the model as a GitHub Release asset, resolving the
+  backend/frontend URLs, running the one-time database migration)
+  require a human with Render/GitHub account access to execute. Don't
+  assume a `*.onrender.com` URL is live without checking
+  `docs/deployment_render.md`'s Phase 6 verification steps yourself.
