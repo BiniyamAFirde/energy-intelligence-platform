@@ -8,13 +8,16 @@ Local Docker Compose: the file is already present via the host bind mount
 (docker-compose.yml's `./models:/app/models`) -- this is then a fast,
 harmless no-op (one hash check, no network access, no behavior change).
 
-Render (a fresh container, no host filesystem, no bind mount, and the
-model is deliberately gitignored -- see .gitignore): downloads it once
-from a GitHub Release asset URL (MODEL_ARTIFACT_URL env var) and verifies
-its SHA256 against MODEL_ARTIFACT_SHA256 (defaults to the artifact's known,
-published hash) before returning. Exits non-zero on a checksum mismatch or
-download failure -- this process's whole job is to never let the app start
-serving with a missing, corrupt, or unverified model artifact silently.
+Cloud Run (a fresh container on every deploy, no host filesystem, no bind
+mount, and the model is deliberately gitignored -- see .gitignore):
+downloads it once from a GitHub Release asset URL (MODEL_ARTIFACT_URL env
+var) and verifies its SHA256 against MODEL_ARTIFACT_SHA256 (defaults to
+the artifact's known, published hash) before returning. Exits non-zero on
+a checksum mismatch or download failure -- this process's whole job is to
+never let the app start serving with a missing, corrupt, or unverified
+model artifact silently. Platform-agnostic despite the name: the same
+mechanism works for any container platform that doesn't offer a host
+bind mount (Cloud Run, Render, etc.) -- see docs/deployment_cloud_run.md.
 """
 
 from __future__ import annotations
@@ -25,7 +28,7 @@ import sys
 import urllib.request
 from pathlib import Path
 
-# The published hash of models/random_forest_v1.joblib (docs/deployment_render.md
+# The published hash of models/random_forest_v1.joblib (docs/deployment_cloud_run.md
 # and the GitHub Release description carry the same value) -- not a secret,
 # just the expected checksum, so a safe default even if the env var is unset.
 DEFAULT_SHA256 = "2b859538307206b4516ff23c984878b1051a05cc910480ec9bdcd27ee83421a8"
@@ -67,7 +70,7 @@ def main() -> None:
             "MODEL_ARTIFACT_URL is not set -- the app will fail at startup when its "
             "lifespan tries to load the model. Set MODEL_ARTIFACT_URL to a GitHub "
             "Release asset URL, or mount/copy the artifact into the container "
-            "yourself. See docs/deployment_render.md.",
+            "yourself. See docs/deployment_cloud_run.md.",
             file=sys.stderr,
         )
         return

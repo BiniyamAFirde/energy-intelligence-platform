@@ -359,39 +359,68 @@ subsequent request reloads it (see External-Company Inference above).
 ## Deployment
 
 This same application is designed to run as a real online deployment, not
-only locally:
+only locally. **Architecture:**
 
-- **GitHub** is the source repository and the source Render's CI/CD
-  deploys from (auto-deploy on push to `main`).
-- The **React frontend** deploys as a **Render static site** -- built with
-  `npm run build`, served from `frontend/dist`, with a SPA rewrite
-  (`/*` -> `/index.html`) so client-side routes like `/external-forecast`
-  work on a direct load or refresh.
-- The **FastAPI backend** runs as a **Render Docker web service**, built
-  from the same `backend/Dockerfile` used locally (on a plan with at
-  least 2GB RAM -- the model alone is ~552MB in memory).
-- **PostgreSQL** runs as **managed Render Postgres**, not a container
-  Render manages itself.
+```
+GitHub  ->  static frontend hosting  ->  Google Cloud Run (FastAPI)  ->  Supabase PostgreSQL
+              (Cloudflare Pages                                          |
+               recommended; see                                         v
+               docs/deployment_frontend.md)                  GitHub Release model artifact
+```
+
+- **GitHub** is the source repository, and the source Google Cloud Build
+  (GitHub-connected, OAuth-based -- no credential file ever stored in this
+  repo) auto-deploys the backend from on every push to `main`.
+- The **React frontend** deploys as a static site -- built with
+  `npm run build`, served from `frontend/dist`. **Cloudflare Pages** is
+  the recommended host (zero code changes needed, native SPA-fallback
+  support); GitHub Pages is documented too, but needs a real routing
+  change (this app uses `BrowserRouter` and serves from the domain root)
+  to work around GitHub Pages' lack of server-side rewrites -- see
+  `docs/deployment_frontend.md` for the exact issue and both options.
+- The **FastAPI backend** runs as a **Google Cloud Run** service, built
+  from the same `backend/Dockerfile` used locally, with at least 2GiB RAM
+  (the model alone is ~552MB in memory) and `min-instances: 0` (no idle
+  cost between visits, at the cost of a cold start on the first request
+  after scale-to-zero).
+- **PostgreSQL** runs as **managed Supabase Postgres**, not a container
+  anything manages itself.
 - The Random Forest model (`models/random_forest_v1.joblib`, gitignored,
   ~552MB) is supplied **separately from normal Git history**: published
-  as a GitHub Release asset and downloaded + SHA256-verified once at
-  container start (`backend/docker_model_fetch.py`), never baked into a
-  Git commit.
+  as a GitHub Release asset (tag `model-v1`) and downloaded + SHA256-
+  verified once at container start (`backend/docker_model_fetch.py`),
+  never baked into a Git commit.
 - **Docker is not required on your computer** to *use* the deployed app --
   once deployed, it's just a normal website plus a normal HTTPS API.
   Docker (via `docker compose up`, above) remains fully available and
   supported for **local development** -- the two are not mutually
-  exclusive; the same `backend/Dockerfile` serves both paths.
+  exclusive; the same `backend/Dockerfile` serves both paths, and Cloud
+  Build builds it in the cloud on every push (no local `docker build`
+  needed to deploy, either).
 - **External-company inference remains inference-only in production
   exactly as it is locally**: `POST /api/v1/forecast` loads the existing
   trained artifact and calls `.predict()` -- it does not retrain the
   model on any company's uploaded data, in either environment.
+- **Supabase Free has a 500MB database-size limit** -- this project's
+  data measured 308MB locally (see `docs/deployment_supabase.md` for the
+  full row-count/table-size breakdown and what happens if usage
+  approaches the limit).
+- **Cloud Run has a real "always free" monthly usage allowance** (180,000
+  vCPU-seconds / 360,000 GiB-seconds / 2,000,000 requests), and with
+  `min-instances: 0` this service only consumes it while actually
+  handling a request -- but Google Cloud billing must still be enabled to
+  deploy, and usage beyond the allowance **incurs real charges**; this is
+  not a claim of guaranteed-zero cost. See `docs/deployment_cloud_run.md`.
+- **Authentication and rate limiting are not part of the current
+  portfolio MVP** on any deployment target -- see Limitations below.
 
-Full step-by-step instructions (creating the Render resources, resolving
-the backend/frontend URL configuration, migrating the existing demo
-database, and verifying the live deployment) are in
-`docs/deployment_render.md`; the Render Blueprint itself is `render.yaml`
-at the repo root.
+Full step-by-step instructions are in `docs/deployment_cloud_run.md`
+(backend + Cloud Build CI/CD), `docs/deployment_supabase.md` (database +
+migration), and `docs/deployment_frontend.md` (frontend hosting options).
+**No public URL has been deployed or verified as part of writing these
+docs** -- creating the actual Google Cloud / Supabase / static-host
+resources requires accounts and credentials this repository does not
+have and should never contain.
 
 ## Project structure
 
@@ -409,7 +438,7 @@ backend/src/energy_platform/
   anomalies/      injection, 4 detectors, evaluation, evaluate, detect, plots
 backend/tests/{unit,integration}/
 backend/alembic/  migrations
-backend/docker-entrypoint.sh, docker_model_fetch.py   Render-only model fetch (no-op locally)
+backend/docker-entrypoint.sh, docker_model_fetch.py   cloud-only model fetch (no-op locally)
 frontend/src/
   api/            typed API client, one file per backend domain
   components/     shared UI (KpiCard, charts, DataTable, badges, state views)
@@ -422,7 +451,6 @@ examples/external_company/  sample CSVs for the external-inference CLI/API/dashb
 data/{raw,processed,samples}/
 models/           trained model artifacts (gitignored, regenerable via train.py / anomalies.evaluate)
 reports/{eda,forecasting,anomalies}/  generated plots (gitignored, regenerable)
-render.yaml       Render Blueprint (backend + frontend + Postgres)
 docs/
 ```
 
@@ -498,17 +526,21 @@ Kept honest rather than smoothed over:
   building scale, or a different climate are all real risks. See
   `docs/external_inference.md` and `docs/PROJECT_REPORT.md` for the full
   discussion.
-- **No GitHub Pages hosting of any kind.** GitHub Pages can only serve
-  static files, and this application depends on a live FastAPI process
-  and a PostgreSQL database, neither of which GitHub Pages can run. See
-  Deployment above and `docs/deployment_render.md` for the actual
-  supported path (Render) -- `docker compose up` (Quickstart) remains the
-  way to run this project locally either way.
-- **Render deployment configuration exists but a live public deployment
-  has not necessarily been performed yet** -- `render.yaml` and
-  `docs/deployment_render.md` are ready to use, but several steps
-  (publishing the model as a GitHub Release asset, resolving the
-  backend/frontend URLs, running the one-time database migration)
-  require a human with Render/GitHub account access to execute. Don't
-  assume a `*.onrender.com` URL is live without checking
-  `docs/deployment_render.md`'s Phase 6 verification steps yourself.
+- **GitHub Pages does not host the full application, and is not even the
+  recommended static-frontend host.** GitHub Pages can only serve static
+  files -- it cannot run the FastAPI backend or PostgreSQL at all (see
+  Deployment above: those run on Cloud Run and Supabase). It also isn't a
+  clean fit for the *frontend alone* as currently built (`BrowserRouter` +
+  domain-root serving) without a real routing change -- see
+  `docs/deployment_frontend.md` for the exact issue and why Cloudflare
+  Pages is recommended instead.
+- **Cloud deployment configuration exists but a live public deployment
+  has not necessarily been performed yet.** `docs/deployment_cloud_run.md`,
+  `docs/deployment_supabase.md`, and `docs/deployment_frontend.md` are
+  ready to use, but every step (publishing the model as a GitHub Release
+  asset, creating the Cloud Run service and Supabase project, resolving
+  the backend/frontend URLs, running the one-time database migration)
+  requires a human with Google Cloud/Supabase/GitHub account access to
+  execute -- none of it can happen from this repository alone. Don't
+  assume any `*.run.app` or static-host URL is live without verifying it
+  yourself with an actual HTTP request first.
