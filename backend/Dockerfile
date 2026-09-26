@@ -16,18 +16,6 @@ COPY src ./src
 COPY tests ./tests
 RUN pip install --no-cache-dir -e ".[dev]"
 
-COPY docker_model_fetch.py docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
-
 EXPOSE 8000
 
-ENTRYPOINT ["./docker-entrypoint.sh"]
-# Shell form (not exec/JSON form) deliberately -- ${PORT:-8000} only
-# expands because this runs through a shell. Cloud Run (like most
-# container platforms, e.g. Render) sets PORT and expects the container
-# to listen on it; local docker-compose.yml overrides this whole CMD with
-# its own literal `--port 8000 --reload` (untouched by this change,
-# container-internal port 8000 there always matches its "8000:8000" port
-# mapping), so this default only matters when the platform runs the image
-# directly. See docs/deployment_cloud_run.md.
-CMD ["sh", "-c", "uvicorn energy_platform.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["uvicorn", "energy_platform.main:app", "--host", "0.0.0.0", "--port", "8000"]

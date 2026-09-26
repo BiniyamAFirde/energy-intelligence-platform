@@ -51,3 +51,7 @@ frontend/.vite/
 
 # --- Postgres local volume (if bind-mounted instead of named volume) ---
 pgdata/
+
+# --- AI coding assistant tooling caches (not part of the application) ---
+.agents/
+skills-lock.json

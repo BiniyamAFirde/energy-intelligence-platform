@@ -79,10 +79,11 @@ product). `src/api/` is a typed client -- one file per backend domain
 Pydantic schema field-for-field, plus a shared `client.ts` that centralizes
 fetch/error handling (`ApiError` carries the backend's own `detail`
 message through to the UI rather than a generic "something went wrong").
-Five pages (Dashboard, Building Detail, Forecasting, Anomaly Monitoring,
-Anomaly Detail), each composing that same typed client with shared
-components (`KpiCard`, `TimeSeriesChart`, `CategoryBarChart`, `DataTable`)
--- no page talks to `fetch` directly.
+Five pages as of Phase 9 (Dashboard, Building Detail, Forecasting, Anomaly
+Monitoring, Anomaly Detail); a sixth, External Forecast, was added later
+for external-company inference (see README) -- each composing that same
+typed client with shared components (`KpiCard`, `TimeSeriesChart`,
+`CategoryBarChart`, `DataTable`) -- no page talks to `fetch` directly.
 
 ## Errors
 
@@ -308,57 +309,4 @@ forecast-residual detector established); `residual = actual - predicted`;
 `generated_at` (the forecast's origin) is verified to always precede
 `target_ts` (the point predicted) by a dedicated regression test, so a
 historical, backtested prediction can never be mistaken for a live one
-(the origin is always strictly earlier).
-
-## Production deployment architecture
-
-Everything above describes the application; this section describes where
-it runs when not local. Full procedure: `docs/deployment_cloud_run.md`
-(backend), `docs/deployment_supabase.md` (database),
-`docs/deployment_frontend.md` (frontend hosting options).
-
-```
-GitHub (main)
-  |  push triggers a Cloud Build trigger (GitHub-connected, OAuth-based --
-  |  no credential file ever stored in this repo)
-  v
-Cloud Build
-  |  builds backend/Dockerfile (unchanged from local Docker Compose)
-  v
-Google Cloud Run              Supabase PostgreSQL
-(Docker runtime, same          (managed, EU region)
- backend/Dockerfile as
- local Docker Compose,
- >=2GB RAM, min-instances 0)
-      |
-      v
-GitHub Release asset
-(random_forest_v1.joblib,
- downloaded + SHA256-verified
- once at container start --
- never in Git history)
-
-Static frontend host (Cloudflare Pages recommended; GitHub Pages
-documented but needs a BrowserRouter/subpath workaround -- see
-docs/deployment_frontend.md), auto-deployed from the same GitHub repo.
-```
-
-The backend container is the *same* `backend/Dockerfile` used by
-`docker compose up` locally -- not a second, deployment-specific image.
-The only additions are (a) an entrypoint step
-(`backend/docker-entrypoint.sh` + `docker_model_fetch.py`) that fetches
-the model artifact if it isn't already present on disk -- a no-op locally,
-since the host bind mount already provides it -- and (b) the Dockerfile's
-default `CMD` reading the platform's `PORT` env var via a shell-form
-command, which `docker-compose.yml`'s own `command:` override (hardcoded
-to the container-internal port 8000) bypasses entirely for local
-development. No forecasting, anomaly-detection, or API behavior changed
-for deployment.
-
-`DATABASE_URL` and `CORS_ORIGINS` are environment-driven in both
-environments already (`energy_platform.config.Settings`) -- deployment
-only means setting their values to Supabase's connection string and the
-deployed frontend's URL instead of `localhost`, never a code change. Same
-for the frontend's API base URL (`VITE_API_BASE_URL`, already
-environment-driven since the external-inference dashboard page was added --
-see `frontend/src/api/client.ts`).
+computed at request time.

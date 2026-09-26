@@ -5,19 +5,23 @@ PostgreSQL, served through a FastAPI backend with day-ahead ML forecasting
 and multi-detector anomaly detection, and visualized in a React +
 TypeScript dashboard.
 
-> Status: **Feature-complete for portfolio release.** Data pipeline, REST
-> API, analytics/EDA, leakage-safe day-ahead forecasting, four-detector
-> anomaly detection, the full React dashboard, and an external-company
-> inference interface (CLI + API + dedicated demo page) are all working
-> end to end against real data, with a production-hardening pass on top.
-> MQTT/IoT simulation, authentication, and cloud deployment remain out of
-> scope -- see Limitations. See `docs/architecture.md` for the layered
-> design, `docs/eda.md` for what the data actually shows,
-> `docs/forecasting.md` for the forecasting formulation and measured
-> results, `docs/anomalies.md` for the four detectors and their evaluated
-> performance, `docs/external_inference.md` for the external-company
-> inference contract, and `docs/data_selection.md` /
-> `docs/data_quality_notes.md` for how the dataset was chosen and cleaned.
+> Status: **Feature-complete, local-only portfolio release.** Data
+> pipeline, REST API, analytics/EDA, leakage-safe day-ahead forecasting,
+> four-detector anomaly detection, the full React dashboard, and an
+> external-company inference interface (CLI + API + dedicated demo page)
+> are all working end to end against real data, with a
+> production-hardening pass on top. **This project runs entirely via
+> `docker compose up` on your own machine -- it is not deployed to any
+> cloud platform** (see Deployment below). MQTT/IoT simulation and
+> authentication remain out of scope -- see Limitations. See
+> `docs/BEGINNER_MANUAL.md` for a from-zero setup walkthrough,
+> `docs/PORTFOLIO_GUIDE.md` for a recruiter/professor-facing summary,
+> `docs/architecture.md` for the layered design, `docs/eda.md` for what
+> the data actually shows, `docs/forecasting.md` for the forecasting
+> formulation and measured results, `docs/anomalies.md` for the four
+> detectors and their evaluated performance, `docs/external_inference.md`
+> for the external-company inference contract, and `docs/data_selection.md`
+> / `docs/data_quality_notes.md` for how the dataset was chosen and cleaned.
 
 ## Overview
 
@@ -300,6 +304,44 @@ data anywhere in the frontend):
    `POST /api/v1/forecast`, and render its 24-hour forecast -- see
    External-Company Inference above
 
+## Demo workflow
+
+A concrete path through the running app, for a first look (or for showing
+this project to someone else) once `docker compose up` and the data/model
+pipeline (Quickstart) have finished:
+
+1. Open `http://localhost:5173` -- the **Dashboard** loads real portfolio
+   KPIs (total consumption, building count, anomaly counts) and charts
+   straight from PostgreSQL.
+2. Click any building in the ranking table -- **Building Detail** shows
+   its own consumption history, hourly profile, and recent anomalies.
+   Try changing the date range and granularity (hourly/daily/weekly/
+   monthly).
+3. Open **Forecasting** in the sidebar -- forecast-vs-actual for a
+   building, explicitly labeled as historical/backtested (see
+   `docs/forecasting.md` for why day-ahead predictions from 2017 are
+   shown rather than a "live" forecast).
+4. Open **Anomalies** -- filter the alert table by detector, severity, or
+   date range, then click any row to open its **Anomaly Detail** page and
+   read the real, value-derived explanation text (e.g. "634.58 kWh is
+   7873x the local median").
+5. Open **External Forecast** in the sidebar -- upload
+   `examples/external_company/energy.csv`, fill in the metadata form
+   (defaults are pre-filled to match `examples/external_company/
+   building.csv`), and click "Generate 24h Forecast." This calls the same
+   `POST /api/v1/forecast` endpoint, and the resulting 24-point chart and
+   table come from the real trained model scoring data it has never seen
+   -- see External-Company Inference above for exactly what that does and
+   doesn't prove.
+6. Open `http://localhost:8000/docs` -- the full interactive Swagger UI
+   for every endpoint used above, generated directly from the FastAPI
+   route definitions (nothing hand-written or out of sync with the code).
+
+For a from-zero, no-assumptions walkthrough (installing Docker, cloning
+the repo, troubleshooting), see `docs/BEGINNER_MANUAL.md`. For a concise
+"how do I explain this project to a recruiter or professor" reference, see
+`docs/PORTFOLIO_GUIDE.md`.
+
 ## Testing
 
 ```bash
@@ -358,69 +400,34 @@ subsequent request reloads it (see External-Company Inference above).
 
 ## Deployment
 
-This same application is designed to run as a real online deployment, not
-only locally. **Architecture:**
+**This project is designed to run locally using Docker Compose. GitHub
+hosts the source code and documentation; the application itself is not a
+cloud-hosted service.**
 
 ```
-GitHub  ->  static frontend hosting  ->  Google Cloud Run (FastAPI)  ->  Supabase PostgreSQL
-              (Cloudflare Pages                                          |
-               recommended; see                                         v
-               docs/deployment_frontend.md)                  GitHub Release model artifact
+GitHub (source code)
+  |  git clone
+  v
+docker compose up
+  |
+  v
+PostgreSQL + FastAPI + React, all running on your own machine
+  |
+  v
+Browser at localhost
 ```
 
-- **GitHub** is the source repository, and the source Google Cloud Build
-  (GitHub-connected, OAuth-based -- no credential file ever stored in this
-  repo) auto-deploys the backend from on every push to `main`.
-- The **React frontend** deploys as a static site -- built with
-  `npm run build`, served from `frontend/dist`. **Cloudflare Pages** is
-  the recommended host (zero code changes needed, native SPA-fallback
-  support); GitHub Pages is documented too, but needs a real routing
-  change (this app uses `BrowserRouter` and serves from the domain root)
-  to work around GitHub Pages' lack of server-side rewrites -- see
-  `docs/deployment_frontend.md` for the exact issue and both options.
-- The **FastAPI backend** runs as a **Google Cloud Run** service, built
-  from the same `backend/Dockerfile` used locally, with at least 2GiB RAM
-  (the model alone is ~552MB in memory) and `min-instances: 0` (no idle
-  cost between visits, at the cost of a cold start on the first request
-  after scale-to-zero).
-- **PostgreSQL** runs as **managed Supabase Postgres**, not a container
-  anything manages itself.
-- The Random Forest model (`models/random_forest_v1.joblib`, gitignored,
-  ~552MB) is supplied **separately from normal Git history**: published
-  as a GitHub Release asset (tag `model-v1`) and downloaded + SHA256-
-  verified once at container start (`backend/docker_model_fetch.py`),
-  never baked into a Git commit.
-- **Docker is not required on your computer** to *use* the deployed app --
-  once deployed, it's just a normal website plus a normal HTTPS API.
-  Docker (via `docker compose up`, above) remains fully available and
-  supported for **local development** -- the two are not mutually
-  exclusive; the same `backend/Dockerfile` serves both paths, and Cloud
-  Build builds it in the cloud on every push (no local `docker build`
-  needed to deploy, either).
-- **External-company inference remains inference-only in production
-  exactly as it is locally**: `POST /api/v1/forecast` loads the existing
-  trained artifact and calls `.predict()` -- it does not retrain the
-  model on any company's uploaded data, in either environment.
-- **Supabase Free has a 500MB database-size limit** -- this project's
-  data measured 308MB locally (see `docs/deployment_supabase.md` for the
-  full row-count/table-size breakdown and what happens if usage
-  approaches the limit).
-- **Cloud Run has a real "always free" monthly usage allowance** (180,000
-  vCPU-seconds / 360,000 GiB-seconds / 2,000,000 requests), and with
-  `min-instances: 0` this service only consumes it while actually
-  handling a request -- but Google Cloud billing must still be enabled to
-  deploy, and usage beyond the allowance **incurs real charges**; this is
-  not a claim of guaranteed-zero cost. See `docs/deployment_cloud_run.md`.
-- **Authentication and rate limiting are not part of the current
-  portfolio MVP** on any deployment target -- see Limitations below.
-
-Full step-by-step instructions are in `docs/deployment_cloud_run.md`
-(backend + Cloud Build CI/CD), `docs/deployment_supabase.md` (database +
-migration), and `docs/deployment_frontend.md` (frontend hosting options).
-**No public URL has been deployed or verified as part of writing these
-docs** -- creating the actual Google Cloud / Supabase / static-host
-resources requires accounts and credentials this repository does not
-have and should never contain.
+There is no live public URL for this application, and none is planned --
+this is a portfolio/demo project meant to be cloned and run locally (see
+Quickstart above and `docs/BEGINNER_MANUAL.md` for a complete walkthrough).
+Cloud deployment (Google Cloud Run, Supabase, Render, Cloudflare Pages) was
+explored and prototyped earlier in this project's history as an
+architecture exercise -- that work is preserved in Git history for anyone
+curious how the same Docker image would need to change to run on a cloud
+platform, but it is **not** the current or recommended way to run this
+project, and none of those cloud resources currently exist or are being
+paid for. If you want to see that historical exploration:
+`git log --oneline --all | grep -i "prepare cloud deployment"`.
 
 ## Project structure
 
@@ -438,7 +445,6 @@ backend/src/energy_platform/
   anomalies/      injection, 4 detectors, evaluation, evaluate, detect, plots
 backend/tests/{unit,integration}/
 backend/alembic/  migrations
-backend/docker-entrypoint.sh, docker_model_fetch.py   cloud-only model fetch (no-op locally)
 frontend/src/
   api/            typed API client, one file per backend domain
   components/     shared UI (KpiCard, charts, DataTable, badges, state views)
@@ -526,21 +532,10 @@ Kept honest rather than smoothed over:
   building scale, or a different climate are all real risks. See
   `docs/external_inference.md` and `docs/PROJECT_REPORT.md` for the full
   discussion.
-- **GitHub Pages does not host the full application, and is not even the
-  recommended static-frontend host.** GitHub Pages can only serve static
-  files -- it cannot run the FastAPI backend or PostgreSQL at all (see
-  Deployment above: those run on Cloud Run and Supabase). It also isn't a
-  clean fit for the *frontend alone* as currently built (`BrowserRouter` +
-  domain-root serving) without a real routing change -- see
-  `docs/deployment_frontend.md` for the exact issue and why Cloudflare
-  Pages is recommended instead.
-- **Cloud deployment configuration exists but a live public deployment
-  has not necessarily been performed yet.** `docs/deployment_cloud_run.md`,
-  `docs/deployment_supabase.md`, and `docs/deployment_frontend.md` are
-  ready to use, but every step (publishing the model as a GitHub Release
-  asset, creating the Cloud Run service and Supabase project, resolving
-  the backend/frontend URLs, running the one-time database migration)
-  requires a human with Google Cloud/Supabase/GitHub account access to
-  execute -- none of it can happen from this repository alone. Don't
-  assume any `*.run.app` or static-host URL is live without verifying it
-  yourself with an actual HTTP request first.
+- **This is a local-only application, by design.** This project is
+  designed to run locally using Docker Compose. GitHub hosts the source
+  code and documentation; the application itself is not a cloud-hosted
+  service. There is no live URL, no GitHub Pages hosting (GitHub Pages
+  can only serve static files -- it cannot run the FastAPI backend or
+  PostgreSQL at all), and no ongoing cloud infrastructure of any kind.
+  See Deployment above.
